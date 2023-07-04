@@ -42,13 +42,25 @@
 %Author: Marcelo A. Colominas
 %contact: macolominas@bioingenieria.edu.ar
 %Last version: 25 feb 2015
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-% The current is a enhanced version
-%*************************************************************************************************************************************************************************************************************
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% The current is a enhanced version of the impCEEMDAN. Last version: 28 jun 2023
+% Authors: Manuel Soto Calvo. manuel.sotocalvo@gmail.com; Han Soo Lee. leehs@hiroshima-u.ac.jp
+% Published in:
+%%****************************************************************************************************************************************
+% x: input signal
+% Nstd: noise standard deviation
+% NR: number of realizations
+% MaxIter: maximum number of iterations
+% SNRFlag: flag to adjust the noise amplitude
+% window_size: size of the moving window for the moving standard deviation
+% filt_method: filter method for smoothing the signal
+% tolerance: threshold for stopping criteria
+% useParpool: flag to decide if use parallel computation or not
 % 'windows_size' must be a 2-elements vector which means the number of elements before and after of the central element.
 % 'windows' must be > 0 && 'windows' < length (x - 1)
 % 'tolerance' must be > 0, once the 'tolerance' criterion has been meet the calculaiton will stop 
-%  Noise filtering methods:  
+%  
+%************************************ Noise filtering methods ******************************************************************************  
 %  'movmean' — Moving average over each window of A. This method is useful for reducing periodic trends in data.
 % 
 %  'movmedian' — Moving median over each window of A. This method is useful for reducing periodic trends in data when outliers are present.
@@ -66,14 +78,42 @@
 %  'sgolay' — Savitzky-Golay filter, which smooths according to a quadratic polynomial that is fitted over each window of A. This method can be more effective than other methods when the data varies rapidly.
 %**************************************************************************************************************************************************************************************************************
 
-function [modes,its]= eceemdan(x,Nstd,NR,MaxIter,SNRFlag,window_size,filt_method,tolerance)
+function [modes, its]= eceemdan(x,Nstd,NR,MaxIter,SNRFlag,window_size,filt_method,tolerance, useParpool)
+
+% Set default values
+if ~exist('filt_method','var')
+    filt_method = 'sgolay';
+end
+if ~exist('window_size','var')
+    window_size = length(x)*0.1; % 10% of the total data points 
+end
+if ~exist('tolerance','var')
+    tolerance = 0;
+end
+if ~exist('SNRFlag','var')
+    SNRFlag = 2;
+end
+if ~exist('MaxIter','var')
+    MaxIter = 500;
+end
+if ~exist('NR','var')
+    NR = 100;
+end
+if ~exist('Nstd','var')
+    Nstd = 0.2;
+end
+if ~exist('useParpool','var')
+    useParpool = 1;
+end
+
 tic
 disp('Starting calculation')
+
 x=x(:)';
 desvio_x=std(x);
 x=x/desvio_x;
 
-% Calculating the moving standard deviation on x 
+% Calculating the moving standard deviation on x
 std_signal = movstd(x, window_size);
 
 modes=zeros(size(x));
@@ -81,18 +121,20 @@ temp=zeros(size(x));
 aux=zeros(size(x));
 iter=zeros(NR,round(log2(length(x))+5));
 
-delete(gcp('nocreate'))
-parpool(); % Opening a parpool
+if useParpool == 1
+    delete(gcp('nocreate'))
+    parpool(); % Opening a parpool
+end
 
-% Generating noise and calculating the first mode 
+% Generating noise and calculating the first mode
 disp('Generating noise and calculating the first mode')
 parfor i=1:NR
     white_noise{i} = Nstd .* std_signal .* randn(size(x));
     xi = x + white_noise{i};
-    [temp, ~, it] = emd(xi,'MAXMODES',1,'MAXITERATIONS',MaxIter);
-    temp = temp(1,:);
-    aux = aux + (xi - temp) / NR;
-    iter(i,1) = it;
+    [mode_i, ~, it_i] = emd(xi,'MAXMODES',1,'MAXITERATIONS',MaxIter);
+    mode_i = mode_i(1,:);
+    aux = aux + (xi - mode_i) / NR;
+    iter(i,1) = it_i;
 end
 
 modes= x-aux; % saves the first mode
@@ -109,74 +151,61 @@ while es_imf > 1
     for i=1:NR
         tam = size(white_noise{i});
         if tam(1) >= k+1
-            noise = white_noise{i}(k+1,:);
-            
+            noise_i = white_noise{i}(k+1,:);
+
             if SNRFlag == 2
-                noise = noise / std(noise); % Adjusting the std of the noise
+                noise_i = noise_i / std(noise_i); % Adjusting the std of the noise
             end
-            noise = Nstd * noise;
-            signal = medias(end,:) + std(medias(end,:)) * noise;
+            noise_i = Nstd * noise_i;
+            signal_i = medias(end,:) + std(medias(end,:)) * noise_i;
 
             try
-                [temp,~,it]=emd(medias(end,:)+std(medias(end,:)) * noise,'MAXMODES',1,'MAXITERATIONS',MaxIter);
-            catch    
-                it=0;
-                temp = emd(medias(end,:) + std(medias(end,:)) * noise,'MAXMODES',1,'MAXITERATIONS',MaxIter);
-            end;
+                [mode_i,~,it_i]=emd(signal_i,'MAXMODES',1,'MAXITERATIONS',MaxIter);
+            catch
+                disp('emd function error, setting it_i to 0')
+                it_i=0;
+                mode_i = emd(signal_i,'MAXMODES',1,'MAXITERATIONS',MaxIter);
+            end
 
             % Filtering the noise
-            signal = smoothdata(signal,filt_method,window_size);
- 
-            [temp, ~, it] = emd(signal(end,:) + std(medias(end,:)) * noise,'MAXMODES',1,'MAXITERATIONS',MaxIter);
-            temp = temp(end,:);
+            signal_i = smoothdata(signal_i,filt_method,window_size);
+
+            [mode_i, ~, it_i] = emd(signal_i,'MAXMODES',1,'MAXITERATIONS',MaxIter);
+            mode_i = mode_i(end,:);
 
             % Update noise estimation
-            noise_estimation = std(signal - temp);
-            white_noise{i} = Nstd .* noise_estimation .* randn(size(x));
+            noise_estimation_i = std(signal_i - mode_i);
+            white_noise{i} = Nstd .* noise_estimation_i .* randn(size(x));
         else
-            signal = medias(end,:);
+            signal_i = medias(end,:);
 
             % Filtering the noise
-            signal = smoothdata(signal,filt_method,window_size);
+            signal_i = smoothdata(signal_i,filt_method,window_size);
 
             try
-                [temp, ~, it] = emd(medias(end,:),'MAXMODES',1,'MAXITERATIONS',MaxIter);
-                
+                [mode_i, ~, it_i] = emd(signal_i,'MAXMODES',1,'MAXITERATIONS',MaxIter);
             catch
-                temp = emd(medias(end,:),'MAXMODES',1,'MAXITERATIONS',MaxIter);
-                it=0;
-
+                disp('emd function error, setting it_i to 0')
+                it_i=0;
+                mode_i = emd(signal_i,'MAXMODES',1,'MAXITERATIONS',MaxIter);
             end
-            temp = temp(end,:);
-
+            mode_i = mode_i(end,:);
         end
-        aux = aux + temp / NR;
-        iter(i, k+1) = it;
-        
+        aux = aux + mode_i / NR;
+        iter(i, k+1) = it_i;
     end
-   
+
     new_mode = medias(end,:) - aux;
 
-         % Validation of the new_mode based on the energy relevancy 
-        new_mode_energy = max(new_mode);
-        if new_mode_energy >= std(cell2mat(white_noise))
-            % If the energy of the new_mode is greter than treshold is included
-            modes = [modes; new_mode];
-                        
-        else
-            % Otherway is fusioned with the previous mode
-            modes(end,:) = modes(end,:) + new_mode;
-            
-        end
+    modes = [modes; new_mode];
 
-%     modes = [modes; new_mode];
     medias = [medias; aux];
 
-    % Adding a stopping criterion based on the tolerance 
+    % Adding a stopping criterion based on the tolerance
     if ~isempty(last_modes) && max(abs(new_mode - last_modes)) < tolerance
         break;
     end
-    
+
     % Updating modes
     last_modes = new_mode;
     k = k + 1;
@@ -189,5 +218,13 @@ modes = modes * desvio_x;
 its = iter;
 
 disp('Decomposition completed')
-delete(gcp('nocreate'))
+
+if useParpool == 1
+    delete(gcp('nocreate'))
+end
+
 toc
+
+end
+
+
