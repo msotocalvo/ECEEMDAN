@@ -1,8 +1,45 @@
-% Function for CEEMDAN
-
+% Function for ECEEMDAN,The current is a enhanced version of the CEEMDAN. Last version: 28 jun 2023
+% Authors: Manuel Soto Calvo. manuel.sotocalvo@gmail.com; Han Soo Lee.leehs@hiroshima-u.ac.jp
+%
+% Syntaxis
+% [modes, its] = eceemdan(x,Nstd,NR,MaxIter,SNRFlag,window_size,filt_method,tolerance, useParpool)
+%
+% x: input signal
+% Nstd: noise standard deviation
+% NR: number of realizations
+% MaxIter: maximum number of iterations
+% SNRFlag: flag to adjust the noise amplitude
+% window_size: size of the moving window for the moving standard deviation
+% filt_method: filter method for smoothing the signal
+% tolerance: threshold for stopping criteria
+% useParpool: flag to decide if use parallel computation or not
+% 'windows_size' must be a 2-elements vector which means the number of elements before and after of the central element.
+% 'windows' must be > 0 && 'windows' < length (x - 1)
+% 'tolerance' must be > 0, once the 'tolerance' criterion has been meet the calculaiton will stop 
+%  
+%************************************ Noise filtering methods ******************************************************************************  
+%  'movmean' — Moving average over each window of A. This method is useful for reducing periodic trends in data.
+% 
+%  'movmedian' — Moving median over each window of A. This method is useful for reducing periodic trends in data when outliers are present.
+% 
+%  'gaussian' — Gaussian-weighted moving average over each window of A.
+% 
+%  'lowess' — Linear regression over each window of A. This method can be computationally expensive, but results in fewer discontinuities.
+% 
+%  'loess' — Quadratic regression over each window of A. This method is slightly more computationally expensive than 'lowess'.
+% 
+%  'rlowess' — Robust linear regression over each window of A. This method is a more computationally expensive version of the method 'lowess', but it is more robust to outliers.
+% 
+%  'rloess' — Robust quadratic regression over each window of A. This method is a more computationally expensive version of the method 'loess', but it is more robust to outliers.
+% 
+%  'sgolay' — Savitzky-Golay filter, which smooths according to a quadratic polynomial that is fitted over each window of A. This method can be more effective than other methods when the data varies rapidly.
+%
+%
 % WARNING: for this code works it is necessary to include in the same
 % directoy the file emd.m developed by Rilling and Flandrin.
-% This file is available at %http://perso.ens-lyon.fr/patrick.flandrin/emd.html
+% This file is available at http://perso.ens-lyon.fr/patrick.flandrin/emd.html
+
+
 % We use the default stopping criterion.
 % We use the last modification: 3.2007
 
@@ -44,7 +81,7 @@
 %Last version: 25 feb 2015
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % The current is a enhanced version of the impCEEMDAN. Last version: 28 jun 2023
-% Authors: Manuel Soto Calvo. manuel.sotocalvo@gmail.com; Han Soo Lee. leehs@hiroshima-u.ac.jp
+% Authors: Manuel Soto Calvo. manuel.sotocalvo@gmail.com; Han Soo Lee.leehs@hiroshima-u.ac.jp
 % Published in:
 %%****************************************************************************************************************************************
 % x: input signal
@@ -85,7 +122,7 @@ if ~exist('filt_method','var')
     filt_method = 'sgolay';
 end
 if ~exist('window_size','var')
-    window_size = length(x)*0.1; % 10% of the total data points 
+    window_size = length(x)*0.1; % 10% of the total data points
 end
 if ~exist('tolerance','var')
     tolerance = 0;
@@ -224,6 +261,21 @@ if useParpool == 1
 end
 
 toc
+
+% Showing result
+figure
+for j = 1:size(modes,1)
+    subplot(size(modes,1),1,j)
+    plot(modes(j,:))
+    hold on
+    if j < size(modes,1)
+        ylabel(["IMF ", num2str(j)])
+    else
+        ylabel("Residual")
+
+    end
+    xlim([1 length(modes)])
+end
 
 end
 
