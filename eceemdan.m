@@ -1,11 +1,23 @@
 % Function for ECEEMDAN,The current is a enhanced version of the CEEMDAN. Last version: 28 jun 2023
 % Authors: Manuel Soto Calvo. manuel.sotocalvo@gmail.com; Han Soo Lee.leehs@hiroshima-u.ac.jp
-%
+% Paper: Enhanced complete ensemble EMD with superior noise handling capabilities: A robust signal decomposition method for power systems analysis DOI: 10.1002/eng2.12862
 % Syntaxis
 % [modes, its] = eceemdan(x,Nstd,NR,MaxIter,SNRFlag,window_size,filt_method,tolerance, useParpool)
 %
 % x: input signal
 % Nstd: noise standard deviation amplitude
+% NR: number of realizations
+% MaxIter: maximum number of iterations
+% SNRFlag: flag to adjust the noise amplitude
+% window_size: size of the moving window for the moving standard deviation
+% filt_method: filter method for smoothing the signal% Function for ECEEMDAN,The current is a enhanced version of the CEEMDAN. Last version: 28 jun 2023
+% Authors: Manuel Soto Calvo. manuel.sotocalvo@gmail.com; Han Soo Lee.leehs@hiroshima-u.ac.jp
+%
+% Syntaxis
+% [modes, its] = eceemdan(x,Nstd,NR,MaxIter,SNRFlag,window_size,filt_method,tolerance, useParpool)
+%
+% x: input signal
+% Nstd: noise standard deviation
 % NR: number of realizations
 % MaxIter: maximum number of iterations
 % SNRFlag: flag to adjust the noise amplitude
@@ -18,33 +30,33 @@
 % 'tolerance' must be > 0, once the 'tolerance' criterion has been meet the calculaiton will stop 
 %  
 %************************************ Noise filtering methods ******************************************************************************  
-%  'movmean' — Moving average over each window of X. This method is useful for reducing periodic trends in data.
+%  'movmean' — Moving average over each window of A. This method is useful for reducing periodic trends in data.
 % 
-%  'movmedian' — Moving median over each window of X. This method is useful for reducing periodic trends in data when outliers are present.
+%  'movmedian' — Moving median over each window of A. This method is useful for reducing periodic trends in data when outliers are present.
 % 
-%  'gaussian' — Gaussian-weighted moving average over each window of X.
+%  'gaussian' — Gaussian-weighted moving average over each window of A.
 % 
-%  'lowess' — Linear regression over each window of X. This method can be computationally expensive, but results in fewer discontinuities.
+%  'lowess' — Linear regression over each window of A. This method can be computationally expensive, but results in fewer discontinuities.
 % 
-%  'loess' — Quadratic regression over each window of X. This method is slightly more computationally expensive than 'lowess'.
+%  'loess' — Quadratic regression over each window of A. This method is slightly more computationally expensive than 'lowess'.
 % 
-%  'rlowess' — Robust linear regression over each window of X. This method is a more computationally expensive version of the method 'lowess', but it is more robust to outliers.
+%  'rlowess' — Robust linear regression over each window of A. This method is a more computationally expensive version of the method 'lowess', but it is more robust to outliers.
 % 
-%  'rloess' — Robust quadratic regression over each window of X. This method is a more computationally expensive version of the method 'loess', but it is more robust to outliers.
+%  'rloess' — Robust quadratic regression over each window of A. This method is a more computationally expensive version of the method 'loess', but it is more robust to outliers.
 % 
-%  'sgolay' — Savitzky-Golay filter, which smooths according to a quadratic polynomial that is fitted over each window of X. This method can be more effective than other methods when the data varies rapidly.
+%  'sgolay' — Savitzky-Golay filter, which smooths according to a quadratic polynomial that is fitted over each window of A. This method can be more effective than other methods when the data varies rapidly.
 %
 %
 % WARNING: for this code works it is necessary to include in the same
 % directoy the file emd.m developed by Rilling and Flandrin.
 % This file is available at http://perso.ens-lyon.fr/patrick.flandrin/emd.html
-% 
-% 
+
+
 % OUTPUT
 % modes: contain the obtained modes in a matrix with the rows being the modes        
 % its: contain the sifting iterations needed for each mode for each realization (one row for each realization)
-%
-% 
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 function [modes, its]= eceemdan(x,Nstd,NR,MaxIter,SNRFlag,window_size,filt_method,tolerance, useParpool)
 
@@ -53,13 +65,13 @@ if ~exist('filt_method','var')
     filt_method = 'sgolay';
 end
 if ~exist('window_size','var')
-    window_size = length(x)*0.1; % 10% of the total data points
+    window_size = length(x)*0.001; 
 end
 if ~exist('tolerance','var')
     tolerance = 0;
 end
 if ~exist('SNRFlag','var')
-    SNRFlag = 2;
+    SNRFlag = 1;
 end
 if ~exist('MaxIter','var')
     MaxIter = 500;
@@ -71,7 +83,7 @@ if ~exist('Nstd','var')
     Nstd = 0.2;
 end
 if ~exist('useParpool','var')
-    useParpool = 1;
+    useParpool = 0;
 end
 
 tic
@@ -89,13 +101,9 @@ temp=zeros(size(x));
 aux=zeros(size(x));
 iter=zeros(NR,round(log2(length(x))+5));
 
-if useParpool == 1
-    delete(gcp('nocreate'))
-    parpool(); % Opening a parpool
-end
-
 % Generating noise and calculating the first mode
 disp('Generating noise and calculating the first mode')
+if useParpool == 1
 parfor i=1:NR
     white_noise{i} = Nstd .* std_signal .* randn(size(x));
     xi = x + white_noise{i};
@@ -103,6 +111,17 @@ parfor i=1:NR
     mode_i = mode_i(1,:);
     aux = aux + (xi - mode_i) / NR;
     iter(i,1) = it_i;
+end
+else
+for i = 1:NR
+    white_noise{i} = Nstd .* std_signal .* randn(size(x));
+    xi = x + white_noise{i};
+    [mode_i, ~, it_i] = emd(xi,'MAXMODES',1,'MAXITERATIONS',MaxIter);
+    mode_i = mode_i(1,:);
+    aux = aux + (xi - mode_i) / NR;
+    iter(i,1) = it_i;
+    
+end
 end
 
 modes= x-aux; % saves the first mode
@@ -121,7 +140,7 @@ while es_imf > 1
         if tam(1) >= k+1
             noise_i = white_noise{i}(k+1,:);
 
-            if SNRFlag == 2
+            if SNRFlag == 1
                 noise_i = noise_i / std(noise_i); % Adjusting the std of the noise
             end
             noise_i = Nstd * noise_i;
@@ -187,14 +206,11 @@ its = iter;
 
 disp('Decomposition completed')
 
-if useParpool == 1
-    delete(gcp('nocreate'))
-end
-
 toc
 
 % Showing result
 figure
+subplot(size(modes,1),1,1)
 for j = 1:size(modes,1)
     subplot(size(modes,1),1,j)
     plot(modes(j,:))
@@ -209,5 +225,6 @@ for j = 1:size(modes,1)
 end
 
 end
+
 
 
